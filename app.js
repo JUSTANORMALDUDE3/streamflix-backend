@@ -12,7 +12,13 @@ const app = express();
 
 // Middleware
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5000', 'https://your-firebase-app.web.app', 'https://streamflix-frontend-beige.vercel.app'], // Update dynamically later if needed
+    origin: function (origin, callback) {
+        if (!origin || origin.startsWith('http://localhost') || origin.endsWith('.vercel.app') || origin === 'https://your-firebase-app.web.app') {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true
 }));
 app.use(express.json());
