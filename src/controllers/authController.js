@@ -23,8 +23,8 @@ const loginUser = async (req, res) => {
 
             res.cookie('jwt', token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict',
+                secure: true, // MUST be true for cross-site cookies
+                sameSite: 'none', // MUST be 'none' for cross-site (Vercel -> Railway)
                 maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
             });
 
