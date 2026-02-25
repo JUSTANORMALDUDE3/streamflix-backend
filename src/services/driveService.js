@@ -101,6 +101,19 @@ const getVideoStream = async (fileId, range) => {
     }
 };
 
+const getDownloadStream = async (fileId) => {
+    try {
+        const response = await drive.files.get(
+            { fileId: fileId, alt: 'media', acknowledgeAbuse: true },
+            { responseType: 'stream' }
+        );
+        return response.data;
+    } catch (error) {
+        console.error('Error getting download stream from Drive:', error);
+        throw error;
+    }
+};
+
 const getAuthUrl = () => {
     return oauth2Client.generateAuthUrl({
         access_type: 'offline',
@@ -127,6 +140,7 @@ const handleCallback = async (code) => {
 module.exports = {
     uploadVideoToDrive,
     getVideoStream,
+    getDownloadStream,
     getAuthUrl,
     handleCallback,
     deleteVideoFromDrive

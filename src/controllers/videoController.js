@@ -3,15 +3,8 @@ const driveService = require('../services/driveService');
 
 const getVideos = async (req, res) => {
     try {
-        // If admin, show all. If user, show <= rank.
-        let query = {};
-        if (req.user && req.user.role !== 'admin') {
-            const rankMapper = { 'top': ['top', 'middle', 'free'], 'middle': ['middle', 'free'], 'free': ['free'] };
-            const allowedRanks = rankMapper[req.user.rank] || ['free'];
-            query = { rank: { $in: allowedRanks } };
-        }
-
-        const videos = await Video.find(query).sort({ uploadDate: -1 });
+        // Universally fetch all videos regardless of rank so they appear in Home/Explore teasers
+        const videos = await Video.find({}).sort({ uploadDate: -1 });
         res.json(videos);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching videos' });

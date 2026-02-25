@@ -32,8 +32,10 @@ app.get('/api/health', (req, res) => {
 
 // Import actual routes
 app.use('/api/videos', require('./src/routes/videoRoutes'));
+app.use('/api/admin/tokens', require('./src/routes/adminTokens'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 app.use('/api/auth', require('./src/routes/authRoutes'));
+app.use('/api/download', require('./src/routes/downloadVerify'));
 app.use('/api', require('./src/routes/authRoutes')); // For /api/login compatibility if frontend expects it there
 
 
