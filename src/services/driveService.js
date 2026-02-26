@@ -118,7 +118,10 @@ const getAuthUrl = () => {
     return oauth2Client.generateAuthUrl({
         access_type: 'offline',
         prompt: 'consent',
-        scope: ['https://www.googleapis.com/auth/drive.file']
+        scope: [
+            'https://www.googleapis.com/auth/drive',        // Full drive access — required to LIST all files in folders
+            'https://www.googleapis.com/auth/drive.file',   // Existing — upload/stream files the app created
+        ]
     });
 };
 

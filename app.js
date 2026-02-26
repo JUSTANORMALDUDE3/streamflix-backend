@@ -21,9 +21,9 @@ app.use(cors({
     },
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // Routes go here
 app.get('/api/health', (req, res) => {
@@ -33,6 +33,7 @@ app.get('/api/health', (req, res) => {
 // Import actual routes
 app.use('/api/videos', require('./src/routes/videoRoutes'));
 app.use('/api/admin/tokens', require('./src/routes/adminTokens'));
+app.use('/api/admin/drive', require('./src/routes/driveScanner'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 app.use('/api/auth', require('./src/routes/authRoutes'));
 app.use('/api/download', require('./src/routes/downloadVerify'));
