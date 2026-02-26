@@ -15,9 +15,21 @@ const videoSchema = new mongoose.Schema({
         enum: ['top', 'middle', 'free'],
         required: true
     },
-    driveFileId: {
+    // upload | embed — defaults to upload for backwards compatibility
+    type: {
         type: String,
-        required: true
+        enum: ['upload', 'embed'],
+        default: 'upload'
+    },
+    // Only set for type === 'upload'
+    driveFileId: {
+        type: String
+    },
+    // Only set for type === 'embed'
+    embed: {
+        src: { type: String },
+        width: { type: Number, default: 640 },
+        height: { type: Number, default: 360 }
     },
     thumbnailUrl: {
         type: String

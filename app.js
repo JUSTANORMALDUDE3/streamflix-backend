@@ -34,6 +34,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/videos', require('./src/routes/videoRoutes'));
 app.use('/api/admin/tokens', require('./src/routes/adminTokens'));
 app.use('/api/admin/drive', require('./src/routes/driveScanner'));
+app.use('/api/admin/embed', require('./src/routes/embedVideo'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
 app.use('/api/auth', require('./src/routes/authRoutes'));
 app.use('/api/download', require('./src/routes/downloadVerify'));
