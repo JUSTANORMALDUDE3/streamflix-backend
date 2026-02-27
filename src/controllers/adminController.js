@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Video = require('../models/Video');
 const driveService = require('../services/driveService');
 const bcrypt = require('bcryptjs');
+const { normalizeTags } = require('../utils/normalizeTags');
 
 // Add User
 const addUser = async (req, res) => {
@@ -52,14 +53,18 @@ const uploadVideo = async (req, res) => {
             return res.status(400).json({ message: 'No video file provided or upload failed' });
         }
 
-        const { title, description, rank, thumbnailUrl, generatedThumbnail } = req.body;
+        const { title, description, rank, thumbnailUrl, generatedThumbnail, tags } = req.body;
         const finalThumbnail = thumbnailUrl || generatedThumbnail || '';
+
+        // Parse tags from comma-separated string to array
+        const tagsArray = normalizeTags(tags);
 
         // Save metadata to DB since Google Drive direct stream upload succeeded
         const video = await Video.create({
             title,
             description,
             rank,
+            tags: tagsArray,
             driveFileId: req.file.driveFileId,
             thumbnailUrl: finalThumbnail
         });
@@ -113,6 +118,9 @@ const updateVideo = async (req, res) => {
 
         if (req.body.title) video.title = req.body.title;
         if (req.body.rank) video.rank = req.body.rank;
+        if (req.body.tags !== undefined) {
+            video.tags = normalizeTags(req.body.tags);
+        }
 
         const updatedVideo = await video.save();
         res.json(updatedVideo);

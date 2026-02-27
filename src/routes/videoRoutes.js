@@ -28,9 +28,10 @@ router.get('/', protect, async (req, res) => {
 
         if (category) query.rank = category;
         if (search) {
+            const q = search.trim();
             query.$or = [
-                { title: { $regex: search, $options: 'i' } },
-                { description: { $regex: search, $options: 'i' } }
+                { title: { $regex: q, $options: 'i' } },
+                { tags: q.toLowerCase() }
             ];
         }
 

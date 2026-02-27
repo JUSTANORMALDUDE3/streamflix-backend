@@ -55,5 +55,6 @@ const videoSchema = new mongoose.Schema({
 
 // Indexes for scheduler and filtering
 videoSchema.index({ status: 1, publishAt: 1 });
+videoSchema.index({ title: 'text', tags: 'text' });
 
 module.exports = mongoose.model('Video', videoSchema);

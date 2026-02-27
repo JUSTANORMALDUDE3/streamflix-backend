@@ -16,9 +16,9 @@ const getVideoById = async (req, res) => {
         const video = await Video.findById(req.params.id);
         if (!video) return res.status(404).json({ message: 'Video not found' });
 
-        // Return meta, rank is checked in route explicitly if streaming, but wait, this route also exposes it.
-        // I will use checkRank on the specific video get endpoint too.
-        res.json(video);
+        let responseVideo = video.toObject();
+        responseVideo.hashtags = (responseVideo.tags || []).map(t => `#${t}`);
+        res.json(responseVideo);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching video' });
     }

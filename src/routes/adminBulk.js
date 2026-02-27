@@ -3,6 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const { protect, authorizeRoles } = require('../middleware/auth');
 const Video = require('../models/Video');
+const { normalizeTags } = require('../utils/normalizeTags');
 
 // -------------------------------------------------------
 // POST /admin/videos/bulk
@@ -48,7 +49,7 @@ router.post('/', protect, authorizeRoles('admin'), async (req, res) => {
                 if (!Array.isArray(tags) || tags.length === 0) {
                     return res.status(400).json({ message: 'tags array required for addTags action.' });
                 }
-                const cleanTags = tags.map(t => String(t).trim()).filter(Boolean);
+                const cleanTags = normalizeTags(tags);
                 result = await Video.updateMany(
                     { _id: { $in: ids } },
                     { $addToSet: { tags: { $each: cleanTags } } }
