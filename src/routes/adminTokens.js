@@ -57,6 +57,7 @@ router.post('/', protect, authorizeRoles('admin'), async (req, res) => {
         const newToken = new DownloadToken({
             token: tokenString,
             videoId,
+            maxUses: remainingUses,
             remainingUses
         });
 

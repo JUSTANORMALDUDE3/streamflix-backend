@@ -15,24 +15,25 @@ const videoSchema = new mongoose.Schema({
         enum: ['top', 'middle', 'free'],
         required: true
     },
-    // upload | embed — defaults to upload for backwards compatibility
-    type: {
-        type: String,
-        enum: ['upload', 'embed'],
-        default: 'upload'
+    tags: {
+        type: [String],
+        default: []
     },
-    // Only set for type === 'upload'
     driveFileId: {
         type: String
     },
-    // Only set for type === 'embed'
-    embed: {
-        src: { type: String },
-        width: { type: Number, default: 640 },
-        height: { type: Number, default: 360 }
-    },
     thumbnailUrl: {
         type: String
+    },
+    // Scheduled publishing
+    status: {
+        type: String,
+        enum: ['draft', 'scheduled', 'published'],
+        default: 'published'
+    },
+    publishAt: {
+        type: Date,
+        default: null
     },
     likes: [{
         type: mongoose.Schema.Types.ObjectId,
@@ -51,5 +52,8 @@ const videoSchema = new mongoose.Schema({
         default: Date.now
     }
 }, { timestamps: true });
+
+// Indexes for scheduler and filtering
+videoSchema.index({ status: 1, publishAt: 1 });
 
 module.exports = mongoose.model('Video', videoSchema);
