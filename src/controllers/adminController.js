@@ -3,6 +3,7 @@ const Video = require('../models/Video');
 const driveService = require('../services/driveService');
 const bcrypt = require('bcryptjs');
 const { normalizeTags } = require('../utils/normalizeTags');
+const { uploadThumbnail } = require('../services/driveUploader');
 
 // Add User
 const addUser = async (req, res) => {
@@ -54,7 +55,17 @@ const uploadVideo = async (req, res) => {
         }
 
         const { title, description, rank, thumbnailUrl, generatedThumbnail, tags } = req.body;
-        const finalThumbnail = thumbnailUrl || generatedThumbnail || '';
+        let finalThumbnail = thumbnailUrl || generatedThumbnail || '';
+
+        // If the thumbnail is a Base64 string, convert and upload to Drive immediately
+        if (finalThumbnail.startsWith('data:image')) {
+            const matches = finalThumbnail.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches && matches.length === 3) {
+                const buffer = Buffer.from(matches[2], 'base64');
+                const filename = `thumbnail_${req.file.driveFileId}.jpg`;
+                finalThumbnail = await uploadThumbnail(buffer, filename);
+            }
+        }
 
         // Parse tags from comma-separated string to array
         const tagsArray = normalizeTags(tags);

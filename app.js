@@ -23,7 +23,8 @@ app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
-// ── Health check ─────────────────────────────────────────────────────
+// ── Health checks ────────────────────────────────────────────────────
+app.get('/', (req, res) => res.status(200).send('API is running.'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK', message: 'Backend is running' }));
 
 // ── Routes ───────────────────────────────────────────────────────────
