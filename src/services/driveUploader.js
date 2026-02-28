@@ -72,7 +72,7 @@ const uploadThumbnail = async (buffer, filename) => {
             });
 
             // 3. Return the standard Google Drive direct content URL
-            return `https://drive.google.com/uc?id=${fileId}`;
+            return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
 
         } catch (error) {
             console.error(`[driveUploader] Upload attempt ${attempts} failed:`, error.message);
