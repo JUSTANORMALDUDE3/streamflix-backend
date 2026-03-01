@@ -31,9 +31,8 @@ const uploadThumbnail = async (buffer, filename) => {
     while (attempts < MAX_ATTEMPTS) {
         attempts++;
         try {
-            // Determine folder (using free tier folder or a dedicated thumbnails folder if available, 
-            // fallback to root if not explicitly defined in env)
-            const parentFolderId = process.env.DRIVE_FOLDER_FREE || null;
+            // Determine folder: Try dedicated thumbnails folder first, fallback to free tier folder, then root
+            const parentFolderId = process.env.DRIVE_FOLDER_THUMBNAILS || process.env.DRIVE_FOLDER_FREE || null;
 
             const fileMetadata = {
                 name: filename,

@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect, authorizeRoles } = require('../middleware/auth');
 const { google } = require('googleapis');
 const Video = require('../models/Video');
+const { normalizeTags } = require('../utils/normalizeTags');
 
 // --- Re-use the same OAuth2 client from driveService ---
 const oauth2Client = new google.auth.OAuth2(
@@ -132,7 +133,7 @@ router.get('/unregistered', protect, authorizeRoles('admin'), async (req, res) =
 // ------------------------------------------------------------
 router.post('/register', protect, authorizeRoles('admin'), async (req, res) => {
     try {
-        const { fileId, folderId, title, description, rank, thumbnailUrl } = req.body;
+        const { fileId, folderId, title, description, rank, thumbnailUrl, tags } = req.body;
 
         if (!fileId || !title || !rank) {
             return res.status(400).json({ message: 'fileId, title, and rank are required' });
@@ -144,10 +145,14 @@ router.post('/register', protect, authorizeRoles('admin'), async (req, res) => {
             return res.status(409).json({ message: 'This file is already registered in the database.' });
         }
 
+        // Parse tags from comma-separated string to array
+        const tagsArray = normalizeTags(tags);
+
         const video = await Video.create({
             title,
             description: description || '',
             rank,
+            tags: tagsArray,
             driveFileId: fileId,
             thumbnailUrl: thumbnailUrl || '',
             uploadDate: new Date(),

@@ -25,6 +25,9 @@ const videoSchema = new mongoose.Schema({
     thumbnailUrl: {
         type: String
     },
+    originalFilename: { type: String },
+    fileSize: { type: Number },
+    duration: { type: Number },
     // Scheduled publishing
     status: {
         type: String,

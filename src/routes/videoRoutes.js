@@ -4,10 +4,12 @@ const videoController = require('../controllers/videoController');
 const { protect, checkRank } = require('../middleware/auth');
 const Video = require('../models/Video');
 const mongoose = require('mongoose');
+const { cacheMiddleware } = require('../middleware/cacheService');
+const asyncHandler = require('../utils/asyncHandler');
 
 // ── Infinite scroll / cursor pagination ─────────────────────────────
 // GET /api/videos?cursor=<lastId>&limit=20&category=&search=
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, cacheMiddleware, asyncHandler(async (req, res) => {
     try {
         const { cursor, limit = 20, category, search } = req.query;
         const pageSize = Math.min(parseInt(limit) || 20, 50); // cap at 50
@@ -50,12 +52,12 @@ router.get('/', protect, async (req, res) => {
         console.error('getVideos error:', err);
         res.status(500).json({ message: 'Failed to fetch videos.' });
     }
-});
+}));
 
-router.get('/:id', protect, videoController.getVideoById);
-router.get('/stream/:id', protect, checkRank, videoController.streamVideo);
-router.post('/:id/like', protect, videoController.likeVideo);
-router.post('/:id/dislike', protect, videoController.dislikeVideo);
-router.post('/:id/view', protect, videoController.addView);
+router.get('/:id', protect, cacheMiddleware, asyncHandler(videoController.getVideoById));
+router.get('/stream/:id', protect, checkRank, asyncHandler(videoController.streamVideo));
+router.post('/:id/like', protect, asyncHandler(videoController.likeVideo));
+router.post('/:id/dislike', protect, asyncHandler(videoController.dislikeVideo));
+router.post('/:id/view', protect, asyncHandler(videoController.addView));
 
 module.exports = router;

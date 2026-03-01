@@ -1,4 +1,5 @@
 const Video = require('../models/Video');
+const WatchHistory = require('../models/WatchHistory');
 const driveService = require('../services/driveService');
 
 const getVideos = async (req, res) => {
@@ -96,6 +97,30 @@ const addView = async (req, res) => {
 
         video.views = (video.views || 0) + 1;
         await video.save();
+
+        if (req.user) {
+            const userId = req.user._id;
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
+
+            const existingHistory = await WatchHistory.findOne({
+                userId,
+                videoId: video._id,
+                watchedAt: { $gte: startOfDay }
+            });
+
+            if (existingHistory) {
+                existingHistory.watchedAt = Date.now();
+                await existingHistory.save();
+            } else {
+                await WatchHistory.create({
+                    userId,
+                    videoId: video._id,
+                    watchDuration: 0,
+                    watchedAt: Date.now()
+                });
+            }
+        }
 
         res.json({ views: video.views });
     } catch (error) {

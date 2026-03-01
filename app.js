@@ -29,6 +29,9 @@ app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK', messag
 
 // ── Routes ───────────────────────────────────────────────────────────
 app.use('/api/videos', require('./src/routes/videoRoutes'));
+
+app.use('/api/history', require('./src/routes/historyRoutes'));
+app.use('/api/playlists', require('./src/routes/playlistRoutes'));
 app.use('/api/admin/tokens', require('./src/routes/adminTokens'));
 app.use('/api/admin/drive', require('./src/routes/driveScanner'));
 app.use('/api/admin/videos/bulk', require('./src/routes/adminBulk'));

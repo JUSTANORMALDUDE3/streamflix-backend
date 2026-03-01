@@ -1,9 +1,11 @@
 const User = require('../models/User');
 const Video = require('../models/Video');
+const WatchHistory = require('../models/WatchHistory');
 const driveService = require('../services/driveService');
 const bcrypt = require('bcryptjs');
 const { normalizeTags } = require('../utils/normalizeTags');
 const { uploadThumbnail } = require('../services/driveUploader');
+const { clearCachePrefix } = require('../middleware/cacheService');
 
 // Add User
 const addUser = async (req, res) => {
@@ -38,8 +40,10 @@ const deleteUser = async (req, res) => {
         if (!user) return res.status(404).json({ message: 'User not found' });
         if (user.username === 'admin') return res.status(403).json({ message: 'Cannot delete default admin' });
 
+        // Cascade delete all history logic matching the user ID 
+        await WatchHistory.deleteMany({ userId: user._id });
         await User.findByIdAndDelete(req.params.id);
-        res.json({ message: 'User removed' });
+        res.json({ message: 'User and their watch history removed' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting user' });
     }
@@ -54,7 +58,7 @@ const uploadVideo = async (req, res) => {
             return res.status(400).json({ message: 'No video file provided or upload failed' });
         }
 
-        const { title, description, rank, thumbnailUrl, generatedThumbnail, tags } = req.body;
+        const { title, description, rank, thumbnailUrl, generatedThumbnail, tags, originalFilename, fileSize, duration } = req.body;
         let finalThumbnail = thumbnailUrl || generatedThumbnail || '';
 
         // If the thumbnail is a Base64 string, convert and upload to Drive immediately
@@ -77,8 +81,14 @@ const uploadVideo = async (req, res) => {
             rank,
             tags: tagsArray,
             driveFileId: req.file.driveFileId,
-            thumbnailUrl: finalThumbnail
+            thumbnailUrl: finalThumbnail,
+            originalFilename,
+            fileSize,
+            duration
         });
+
+        // Invalidate video cache
+        clearCachePrefix('/api/videos');
 
         res.status(201).json(video);
     } catch (error) {
@@ -134,9 +144,43 @@ const updateVideo = async (req, res) => {
         }
 
         const updatedVideo = await video.save();
+
+        // Invalidate video cache
+        clearCachePrefix('/api/videos');
+
         res.json(updatedVideo);
     } catch (error) {
         res.status(500).json({ message: 'Error updating video' });
+    }
+};
+
+// Check for duplicates
+const checkDuplicateVideo = async (req, res) => {
+    try {
+        const { title, originalFilename, fileSize } = req.query;
+        let query = { $or: [] };
+
+        if (title) query.$or.push({ title: { $regex: new RegExp(`^${title}$`, 'i') } });
+        if (originalFilename) query.$or.push({ originalFilename });
+        if (fileSize) query.$or.push({ fileSize: Number(fileSize) });
+
+        if (query.$or.length === 0) return res.status(200).json({ duplicate: false });
+
+        const video = await Video.findOne(query);
+
+        if (video) {
+            let reason = [];
+            if (title && video.title.toLowerCase() === title.toLowerCase()) reason.push('Title');
+            if (originalFilename && video.originalFilename === originalFilename) reason.push('Filename');
+            if (fileSize && video.fileSize === Number(fileSize)) reason.push('File Size');
+
+            res.json({ duplicate: true, reason: reason.join(' and '), existingVideo: { title: video.title, _id: video._id } });
+        } else {
+            res.json({ duplicate: false });
+        }
+    } catch (error) {
+        console.error('checkDuplicateVideo error:', error);
+        res.status(500).json({ message: 'Error checking duplicates' });
     }
 };
 
@@ -155,6 +199,10 @@ const deleteVideo = async (req, res) => {
 
         // Delete from DB
         await Video.findByIdAndDelete(req.params.id);
+
+        // Invalidate video cache
+        clearCachePrefix('/api/videos');
+
         res.json({ message: 'Video deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting video' });
@@ -170,5 +218,6 @@ module.exports = {
     getUsers,
     getAllVideos,
     updateVideo,
-    deleteVideo
+    deleteVideo,
+    checkDuplicateVideo
 };
