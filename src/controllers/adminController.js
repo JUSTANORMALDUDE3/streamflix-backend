@@ -58,7 +58,7 @@ const uploadVideo = async (req, res) => {
             return res.status(400).json({ message: 'No video file provided or upload failed' });
         }
 
-        const { title, description, rank, thumbnailUrl, generatedThumbnail, tags, originalFilename, fileSize, duration } = req.body;
+        const { title, description, rank, thumbnailUrl, generatedThumbnail, tags, originalFilename, fileSize, duration, targetAccount } = req.body;
         let finalThumbnail = thumbnailUrl || generatedThumbnail || '';
 
         // If the thumbnail is a Base64 string, convert and upload to Drive immediately
@@ -67,7 +67,7 @@ const uploadVideo = async (req, res) => {
             if (matches && matches.length === 3) {
                 const buffer = Buffer.from(matches[2], 'base64');
                 const filename = `thumbnail_${req.file.driveFileId}.jpg`;
-                finalThumbnail = await uploadThumbnail(buffer, filename);
+                finalThumbnail = await uploadThumbnail(buffer, filename, targetAccount);
             }
         }
 
@@ -99,15 +99,18 @@ const uploadVideo = async (req, res) => {
 
 // OAuth endpoints for admin to authorize backend text output
 const getAuthUrl = (req, res) => {
-    res.json({ url: driveService.getAuthUrl() });
+    const accountType = req.query.accountType || 'primary';
+    res.redirect(driveService.getAuthUrl(accountType));
 };
 
 const handleCallback = async (req, res) => {
     try {
-        const tokens = await driveService.handleCallback(req.query.code);
-        res.send(`Successfully authorized! Copy this refresh token into your .env file: <h2>${tokens.refresh_token}</h2>`);
+        const accountType = req.query.state || 'primary';
+        const tokens = await driveService.handleCallback(req.query.code, accountType);
+        res.send(`Successfully authorized! Copy this refresh token into your .env file for the <b>${accountType.toUpperCase()}</b> account: <h2>${tokens.refresh_token}</h2>`);
     } catch (error) {
-        res.status(500).send('Authorization failed');
+        console.error('OAuth Callback Error:', error.message || error);
+        res.status(500).send(`Authorization failed: ${error.message || 'Unknown error. Check console.'}`);
     }
 };
 

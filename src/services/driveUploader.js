@@ -16,14 +16,29 @@ if (process.env.GOOGLE_REFRESH_TOKEN) {
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
+// --- Fallback Client Setup ---
+let fallbackDrive = null;
+if (process.env.FALLBACK_GOOGLE_REFRESH_TOKEN) {
+    const fallbackOauth2Client = new google.auth.OAuth2(
+        process.env.FALLBACK_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+        process.env.FALLBACK_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
+        process.env.FALLBACK_GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI
+    );
+    fallbackOauth2Client.setCredentials({
+        refresh_token: process.env.FALLBACK_GOOGLE_REFRESH_TOKEN
+    });
+    fallbackDrive = google.drive({ version: 'v3', auth: fallbackOauth2Client });
+}
+
 /**
  * Uploads an image buffer to Google Drive and makes it publicly accessible.
  * 
  * @param {Buffer} buffer - The image buffer to upload
  * @param {String} filename - The filename with extension (e.g. 'thumb_123.jpg')
+ * @param {String} targetAccount - 'primary' or 'fallback'
  * @returns {String} The public Google Drive URL
  */
-const uploadThumbnail = async (buffer, filename) => {
+const uploadThumbnail = async (buffer, filename, targetAccount = 'primary') => {
     // Retry logic
     let attempts = 0;
     const MAX_ATTEMPTS = 3;
@@ -31,7 +46,33 @@ const uploadThumbnail = async (buffer, filename) => {
     while (attempts < MAX_ATTEMPTS) {
         attempts++;
         try {
-            // Determine folder: Try dedicated thumbnails folder first, fallback to free tier folder, then root
+            // Explicit Fallback Account Request
+            if (targetAccount === 'fallback' && fallbackDrive) {
+                console.log(`[driveUploader] Explicit fallback account requested for thumbnail. Attempt ${attempts}`);
+                const fallbackFolderId = process.env.FALLBACK_DRIVE_FOLDER_THUMBNAILS || process.env.FALLBACK_DRIVE_FOLDER_FREE || null;
+                const fallbackMetadata = { name: filename };
+                if (fallbackFolderId) fallbackMetadata.parents = [fallbackFolderId];
+
+                const fallbackStream = new Readable();
+                fallbackStream.push(buffer);
+                fallbackStream.push(null);
+
+                const fallbackResponse = await fallbackDrive.files.create({
+                    resource: fallbackMetadata,
+                    media: { mimeType: 'image/jpeg', body: fallbackStream },
+                    fields: 'id',
+                });
+                const fallbackFileId = fallbackResponse.data.id;
+
+                await fallbackDrive.permissions.create({
+                    fileId: fallbackFileId,
+                    requestBody: { role: 'reader', type: 'anyone' },
+                });
+
+                return `https://drive.google.com/thumbnail?id=${fallbackFileId}&sz=w1000`;
+            }
+
+            // Primary Account Upload
             const parentFolderId = process.env.DRIVE_FOLDER_THUMBNAILS || process.env.DRIVE_FOLDER_FREE || null;
 
             const fileMetadata = {
@@ -74,8 +115,45 @@ const uploadThumbnail = async (buffer, filename) => {
             return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
 
         } catch (error) {
-            console.error(`[driveUploader] Upload attempt ${attempts} failed:`, error.message);
+            // If explicit fallback was requested, don't cascade into primary failover
+            if (targetAccount === 'fallback') {
+                console.error(`[driveUploader] Explicit fallback upload attempt ${attempts} failed:`, error.message);
+                if (attempts >= MAX_ATTEMPTS) throw error;
+                await new Promise(res => setTimeout(res, 1000));
+                continue;
+            }
+
+            console.error(`[driveUploader] Primary upload attempt ${attempts} failed:`, error.message);
             if (attempts >= MAX_ATTEMPTS) {
+                if (fallbackDrive) {
+                    console.log('[driveUploader] Attempting upload to secondary fallback drive...');
+                    try {
+                        const fallbackFolderId = process.env.FALLBACK_DRIVE_FOLDER_THUMBNAILS || process.env.FALLBACK_DRIVE_FOLDER_FREE || null;
+                        const fallbackMetadata = { name: filename };
+                        if (fallbackFolderId) fallbackMetadata.parents = [fallbackFolderId];
+
+                        const fallbackStream = new Readable();
+                        fallbackStream.push(buffer);
+                        fallbackStream.push(null);
+
+                        const fallbackResponse = await fallbackDrive.files.create({
+                            resource: fallbackMetadata,
+                            media: { mimeType: 'image/jpeg', body: fallbackStream },
+                            fields: 'id',
+                        });
+                        const fallbackFileId = fallbackResponse.data.id;
+
+                        await fallbackDrive.permissions.create({
+                            fileId: fallbackFileId,
+                            requestBody: { role: 'reader', type: 'anyone' },
+                        });
+
+                        return `https://drive.google.com/thumbnail?id=${fallbackFileId}&sz=w1000`;
+                    } catch (fallbackError) {
+                        console.error('[driveUploader] Fallback failover upload failed:', fallbackError.message);
+                        throw new Error(`Failed to upload thumbnail to BOTH primary and fallback Drives.`);
+                    }
+                }
                 throw new Error(`Failed to upload thumbnail to Drive after ${MAX_ATTEMPTS} attempts: ${error.message}`);
             }
             // Wait 1 second before retrying
