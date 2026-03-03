@@ -1,14 +1,27 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-const protect = async (req, res, next) => {
-    let token;
-
-    if (req.cookies && req.cookies.jwt) {
-        token = req.cookies.jwt;
-    } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        token = req.headers.authorization.split(' ')[1];
+const extractBearerToken = (req) => {
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+        return req.headers.authorization.split(' ')[1];
     }
+    return null;
+};
+
+const extractToken = (req) => {
+    if (req.cookies && req.cookies.jwt) {
+        return req.cookies.jwt;
+    }
+
+    if (req.query && typeof req.query.token === 'string' && req.query.token.trim()) {
+        return req.query.token.trim();
+    }
+
+    return extractBearerToken(req);
+};
+
+const protect = async (req, res, next) => {
+    const token = extractToken(req);
 
     if (!token) {
         return res.status(401).json({ message: 'Not authorized, no token' });
@@ -50,13 +63,13 @@ const checkRank = async (req, res, next) => {
         }
 
         const userRank = req.user.rank;
-        const mappedRankValue = { 'top': 3, 'middle': 2, 'free': 1 };
+        const mappedRankValue = { top: 3, middle: 2, free: 1 };
 
         const userValue = mappedRankValue[userRank] || 0;
-        const videoValue = mappedRankValue[video.rank] || 3; // secure fallback
+        const videoValue = mappedRankValue[video.rank] || 3;
 
         if (userValue >= videoValue) {
-            req.video = video; // Pass video to next middleware to avoid re-querying
+            req.video = video;
             next();
         } else {
             return res.status(403).json({ message: 'Rank too low to access this video' });

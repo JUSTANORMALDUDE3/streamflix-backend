@@ -4,9 +4,14 @@ const WatchHistory = require('../models/WatchHistory');
 const driveService = require('../services/driveService');
 const { clearCachePrefix } = require('../middleware/cacheService');
 
+const clearVideoCaches = () => {
+    clearCachePrefix('/api/videos');
+    clearCachePrefix('/api/home');
+};
+
 const getVideos = async (req, res) => {
     try {
-        const videos = await Video.find({}).sort({ uploadDate: -1 });
+        const videos = await Video.find({}).sort({ uploadDate: -1 }).lean();
         res.json(videos);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching videos' });
@@ -15,19 +20,23 @@ const getVideos = async (req, res) => {
 
 const getVideoById = async (req, res) => {
     try {
-        const video = await Video.findById(req.params.id);
+        const video = await Video.findById(req.params.id)
+            .select('-__v')
+            .lean();
+
         if (!video) return res.status(404).json({ message: 'Video not found' });
 
         const eventViews = await VideoView.countDocuments({ videoId: video._id });
 
-        const responseVideo = video.toObject();
-        responseVideo.views = (responseVideo.views || 0) + eventViews;
-        responseVideo.hashtags = (responseVideo.tags || []).map(t => `#${t}`);
-        res.json(responseVideo);
+        res.json({
+            ...video,
+            views: (video.views || 0) + eventViews,
+            hashtags: (video.tags || []).map((tag) => `#${tag}`)
+        });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching video' });
     }
-}
+};
 
 const streamVideo = async (req, res) => {
     try {
@@ -95,12 +104,11 @@ const addView = async (req, res) => {
         await video.save();
 
         if (req.user) {
-            const userId = req.user._id;
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
 
             const existingHistory = await WatchHistory.findOne({
-                userId,
+                userId: req.user._id,
                 videoId: video._id,
                 watchedAt: { $gte: startOfDay }
             });
@@ -110,7 +118,7 @@ const addView = async (req, res) => {
                 await existingHistory.save();
             } else {
                 await WatchHistory.create({
-                    userId,
+                    userId: req.user._id,
                     videoId: video._id,
                     watchDuration: 0,
                     watchedAt: Date.now()
@@ -118,7 +126,7 @@ const addView = async (req, res) => {
             }
         }
 
-        clearCachePrefix('/api/videos');
+        clearVideoCaches();
         res.json({ views: video.views });
     } catch (error) {
         console.error('Error in addView:', error);
