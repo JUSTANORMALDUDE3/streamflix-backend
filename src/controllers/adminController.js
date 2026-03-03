@@ -193,21 +193,36 @@ const deleteVideo = async (req, res) => {
         const video = await Video.findById(req.params.id);
         if (!video) return res.status(404).json({ message: 'Video not found' });
 
-        // Delete from Drive
+        // Delete from Drive (best-effort — always clean up DB regardless)
+        let driveDeleteWarning = null;
         try {
             await driveService.deleteVideoFromDrive(video.driveFileId);
         } catch (driveErr) {
-            console.error('Could not delete from drive (maybe already deleted):', driveErr.message);
+            console.error('[Delete] Could not delete video from Drive:', driveErr.message);
+            driveDeleteWarning = driveErr.message;
         }
 
-        // Delete from DB
+        try {
+            if (video.thumbnailUrl) {
+                await driveService.deleteThumbnailFromDrive(video.thumbnailUrl);
+            }
+        } catch (thumbErr) {
+            console.error('[Delete] Could not delete thumbnail from Drive:', thumbErr.message);
+        }
+
+        // Always delete from DB so the video disappears from frontend
         await Video.findByIdAndDelete(req.params.id);
 
         // Invalidate video cache
         clearCachePrefix('/api/videos');
 
-        res.json({ message: 'Video deleted successfully' });
+        if (driveDeleteWarning) {
+            res.json({ message: `Video removed from database. Warning: could not delete from Drive (${driveDeleteWarning}). You may need to delete the file manually from Google Drive.` });
+        } else {
+            res.json({ message: 'Video and thumbnail deleted successfully from both database and Drive.' });
+        }
     } catch (error) {
+        console.error('Database deletion error:', error);
         res.status(500).json({ message: 'Error deleting video' });
     }
 };

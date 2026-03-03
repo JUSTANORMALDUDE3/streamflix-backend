@@ -1,10 +1,11 @@
 const Video = require('../models/Video');
+const VideoView = require('../models/VideoView');
 const WatchHistory = require('../models/WatchHistory');
 const driveService = require('../services/driveService');
+const { clearCachePrefix } = require('../middleware/cacheService');
 
 const getVideos = async (req, res) => {
     try {
-        // Universally fetch all videos regardless of rank so they appear in Home/Explore teasers
         const videos = await Video.find({}).sort({ uploadDate: -1 });
         res.json(videos);
     } catch (error) {
@@ -17,7 +18,10 @@ const getVideoById = async (req, res) => {
         const video = await Video.findById(req.params.id);
         if (!video) return res.status(404).json({ message: 'Video not found' });
 
-        let responseVideo = video.toObject();
+        const eventViews = await VideoView.countDocuments({ videoId: video._id });
+
+        const responseVideo = video.toObject();
+        responseVideo.views = (responseVideo.views || 0) + eventViews;
         responseVideo.hashtags = (responseVideo.tags || []).map(t => `#${t}`);
         res.json(responseVideo);
     } catch (error) {
@@ -27,7 +31,7 @@ const getVideoById = async (req, res) => {
 
 const streamVideo = async (req, res) => {
     try {
-        const video = req.video; // Extracted directly by checkRank middleware
+        const video = req.video;
         const { stream, headers, status } = await driveService.getVideoStream(video.driveFileId, req.headers.range);
 
         res.writeHead(status, headers);
@@ -44,15 +48,11 @@ const likeVideo = async (req, res) => {
         if (!video) return res.status(404).json({ message: 'Video not found' });
 
         const userId = req.user._id;
-
-        // Check if already liked
         const isLiked = video.likes.includes(userId);
 
         if (isLiked) {
-            // Toggle off
             video.likes.pull(userId);
         } else {
-            // Toggle on, and remove from dislikes if present
             video.likes.push(userId);
             video.dislikes.pull(userId);
         }
@@ -70,15 +70,11 @@ const dislikeVideo = async (req, res) => {
         if (!video) return res.status(404).json({ message: 'Video not found' });
 
         const userId = req.user._id;
-
-        // Check if already disliked
         const isDisliked = video.dislikes.includes(userId);
 
         if (isDisliked) {
-            // Toggle off
             video.dislikes.pull(userId);
         } else {
-            // Toggle on, and remove from likes if present
             video.dislikes.push(userId);
             video.likes.pull(userId);
         }
@@ -122,6 +118,7 @@ const addView = async (req, res) => {
             }
         }
 
+        clearCachePrefix('/api/videos');
         res.json({ views: video.views });
     } catch (error) {
         console.error('Error in addView:', error);

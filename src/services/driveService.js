@@ -7,7 +7,6 @@ const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_REDIRECT_URI
 );
 
-// If there's a refresh token in env, set it
 if (process.env.GOOGLE_REFRESH_TOKEN) {
     oauth2Client.setCredentials({
         refresh_token: process.env.GOOGLE_REFRESH_TOKEN
@@ -16,7 +15,6 @@ if (process.env.GOOGLE_REFRESH_TOKEN) {
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-// --- Fallback Client Setup ---
 let fallbackDrive = null;
 if (process.env.FALLBACK_GOOGLE_REFRESH_TOKEN) {
     const fallbackOauth2Client = new google.auth.OAuth2(
@@ -38,7 +36,6 @@ const uploadVideoToDrive = async (fileStream, originalName, mimeType, rank, targ
             body: fileStream
         };
 
-        // If admin explicitly requested the fallback account, skip primary upload attempt
         if (targetAccount === 'fallback' && fallbackDrive) {
             console.log('Explicit fallback account requested. Skipping primary drive.');
             let fallbackFolderId;
@@ -85,8 +82,6 @@ const uploadVideoToDrive = async (fileStream, originalName, mimeType, rank, targ
 
         return response.data.id;
     } catch (error) {
-        // If the admin targeted 'fallback' from the start, we don't try the fallback AGAIN
-        // if it threw an error (e.g., unauthorized client), because the stream is already consumed.
         if (targetAccount === 'fallback') {
             console.error('Explicit fallback account upload failed:', error.message);
             throw error;
@@ -94,7 +89,6 @@ const uploadVideoToDrive = async (fileStream, originalName, mimeType, rank, targ
 
         console.error('Error uploading to primary Drive:', error.message);
 
-        // Failover Logic: If primary failed and we didn't explicitly request fallback, try fallback now
         if (fallbackDrive) {
             console.log('Attempting failover upload to secondary fallback drive...');
             try {
@@ -127,32 +121,22 @@ const uploadVideoToDrive = async (fileStream, originalName, mimeType, rank, targ
     }
 };
 
-const getVideoStream = async (fileId, range) => {
-    try {
-        // Fetch absolute metadata footprint
-        const fileMeta = await drive.files.get({
-            fileId: fileId,
-            fields: 'size'
-        });
-        const fileSize = parseInt(fileMeta.data.size, 10);
+const buildStreamResponse = async (activeDrive, fileId, range) => {
+    const fileMeta = await activeDrive.files.get({
+        fileId,
+        fields: 'size,mimeType,name'
+    });
 
-        // Clamp chunks to 10MB chunks to instantly stream
-        const CHUNK_SIZE = 10 * 1024 * 1024;
-        let start = 0;
-        let end = fileSize - 1;
+    const fileSize = parseInt(fileMeta.data.size, 10);
+    const mimeType = fileMeta.data.mimeType || 'video/mp4';
 
-        if (range) {
-            const parts = range.replace(/bytes=/, "").split("-");
-            start = parseInt(parts[0], 10) || 0;
-            const requestedEnd = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-            end = Math.min(requestedEnd, start + CHUNK_SIZE - 1, fileSize - 1);
-        } else {
-            // Even if browser doesn't send range natively, force 206 chunking to prevent Drive memory bloat
-            end = Math.min(CHUNK_SIZE - 1, fileSize - 1);
-        }
+    if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10) || 0;
+        const end = parts[1] ? Math.min(parseInt(parts[1], 10), fileSize - 1) : fileSize - 1;
 
-        const driveResponse = await drive.files.get(
-            { fileId: fileId, alt: 'media', acknowledgeAbuse: true },
+        const driveResponse = await activeDrive.files.get(
+            { fileId, alt: 'media', acknowledgeAbuse: true },
             {
                 responseType: 'stream',
                 headers: { Range: `bytes=${start}-${end}` }
@@ -165,54 +149,40 @@ const getVideoStream = async (fileId, range) => {
                 'Content-Range': `bytes ${start}-${end}/${fileSize}`,
                 'Accept-Ranges': 'bytes',
                 'Content-Length': (end - start) + 1,
-                'Content-Type': 'video/mp4'
+                'Content-Type': mimeType,
+                'Cache-Control': 'no-store'
             },
             status: 206
         };
+    }
+
+    const driveResponse = await activeDrive.files.get(
+        { fileId, alt: 'media', acknowledgeAbuse: true },
+        { responseType: 'stream' }
+    );
+
+    return {
+        stream: driveResponse.data,
+        headers: {
+            'Accept-Ranges': 'bytes',
+            'Content-Length': fileSize,
+            'Content-Type': mimeType,
+            'Cache-Control': 'no-store'
+        },
+        status: 200
+    };
+};
+
+const getVideoStream = async (fileId, range) => {
+    try {
+        return await buildStreamResponse(drive, fileId, range);
     } catch (error) {
         if (fallbackDrive) {
             try {
-                // Fetch absolute metadata footprint from fallback
-                const fileMeta = await fallbackDrive.files.get({
-                    fileId: fileId,
-                    fields: 'size'
-                });
-                const fileSize = parseInt(fileMeta.data.size, 10);
-
-                const CHUNK_SIZE = 10 * 1024 * 1024;
-                let start = 0;
-                let end = fileSize - 1;
-
-                if (range) {
-                    const parts = range.replace(/bytes=/, "").split("-");
-                    start = parseInt(parts[0], 10) || 0;
-                    const requestedEnd = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-                    end = Math.min(requestedEnd, start + CHUNK_SIZE - 1, fileSize - 1);
-                } else {
-                    end = Math.min(CHUNK_SIZE - 1, fileSize - 1);
-                }
-
-                const fallbackDriveResponse = await fallbackDrive.files.get(
-                    { fileId: fileId, alt: 'media', acknowledgeAbuse: true },
-                    {
-                        responseType: 'stream',
-                        headers: { Range: `bytes=${start}-${end}` }
-                    }
-                );
-
-                return {
-                    stream: fallbackDriveResponse.data,
-                    headers: {
-                        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-                        'Accept-Ranges': 'bytes',
-                        'Content-Length': (end - start) + 1,
-                        'Content-Type': 'video/mp4'
-                    },
-                    status: 206
-                };
+                return await buildStreamResponse(fallbackDrive, fileId, range);
             } catch (fallbackError) {
                 console.error('Error getting stream from fallback Drive:', fallbackError.message);
-                throw error; // throw original
+                throw error;
             }
         }
         console.error('Error getting stream from Drive:', error.message);
@@ -256,8 +226,8 @@ const getAuthUrl = (accountType = 'primary') => {
         prompt: 'consent',
         state: accountType,
         scope: [
-            'https://www.googleapis.com/auth/drive',        // Full drive access — required to LIST all files in folders
-            'https://www.googleapis.com/auth/drive.file',   // Existing — upload/stream files the app created
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/drive.file',
         ]
     });
 };
@@ -265,15 +235,47 @@ const getAuthUrl = (accountType = 'primary') => {
 const deleteVideoFromDrive = async (fileId) => {
     try {
         await drive.files.delete({ fileId: fileId });
+        console.log(`[Drive API] Successfully deleted video ${fileId} from primary drive`);
     } catch (error) {
         if (fallbackDrive) {
             try {
                 await fallbackDrive.files.delete({ fileId: fileId });
+                console.log(`[Drive API] Successfully deleted video ${fileId} from fallback drive`);
                 return;
-            } catch (fallbackError) { }
+            } catch (fallbackError) {
+                console.error('[Drive API] Fallback deletion also failed:', fallbackError.message);
+            }
         }
-        console.error('Error deleting from Drive:', error.message);
+        console.error('[Drive API] Error deleting from primary Drive:', error.message);
         throw error;
+    }
+};
+
+const deleteThumbnailFromDrive = async (thumbnailUrl) => {
+    if (!thumbnailUrl || !thumbnailUrl.includes('drive.google.com/thumbnail?id=')) return;
+
+    try {
+        const urlParams = new URL(thumbnailUrl).searchParams;
+        const fileId = urlParams.get('id');
+        if (!fileId) return;
+
+        try {
+            await drive.files.delete({ fileId: fileId });
+            console.log(`[Drive API] Successfully deleted thumbnail ${fileId} from primary drive`);
+        } catch (error) {
+            if (fallbackDrive) {
+                try {
+                    await fallbackDrive.files.delete({ fileId: fileId });
+                    console.log(`[Drive API] Successfully deleted thumbnail ${fileId} from fallback drive`);
+                    return;
+                } catch (fallbackError) {
+                    console.error('[Drive API] Fallback thumbnail deletion failed:', fallbackError.message);
+                }
+            }
+            console.error('[Drive API] Error deleting thumbnail from primary Drive:', error.message);
+        }
+    } catch (e) {
+        console.error('[Drive API] Error parsing thumbnail URL for deletion:', e.message);
     }
 };
 
@@ -297,5 +299,6 @@ module.exports = {
     getDownloadStream,
     getAuthUrl,
     handleCallback,
-    deleteVideoFromDrive
+    deleteVideoFromDrive,
+    deleteThumbnailFromDrive
 };

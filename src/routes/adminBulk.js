@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const { protect, authorizeRoles } = require('../middleware/auth');
 const Video = require('../models/Video');
 const { normalizeTags } = require('../utils/normalizeTags');
+const driveService = require('../services/driveService');
+const { clearCachePrefix } = require('../middleware/cacheService');
 
 // -------------------------------------------------------
 // POST /admin/videos/bulk
@@ -31,8 +33,47 @@ router.post('/', protect, authorizeRoles('admin'), async (req, res) => {
 
         switch (action) {
             case 'delete': {
-                result = await Video.deleteMany({ _id: { $in: ids } });
-                return res.json({ success: true, deletedCount: result.deletedCount });
+                const videos = await Video.find({ _id: { $in: ids } });
+                let deletedCount = 0;
+                const warnings = [];
+
+                for (const video of videos) {
+                    let driveDeleteWarning = null;
+
+                    try {
+                        await driveService.deleteVideoFromDrive(video.driveFileId);
+                    } catch (driveErr) {
+                        console.error('[Bulk Delete] Could not delete video from Drive:', driveErr.message);
+                        driveDeleteWarning = driveErr.message;
+                    }
+
+                    try {
+                        if (video.thumbnailUrl) {
+                            await driveService.deleteThumbnailFromDrive(video.thumbnailUrl);
+                        }
+                    } catch (thumbErr) {
+                        console.error('[Bulk Delete] Could not delete thumbnail from Drive:', thumbErr.message);
+                    }
+
+                    await Video.findByIdAndDelete(video._id);
+                    deletedCount += 1;
+
+                    if (driveDeleteWarning) {
+                        warnings.push({
+                            videoId: video._id,
+                            title: video.title,
+                            message: driveDeleteWarning
+                        });
+                    }
+                }
+
+                clearCachePrefix('/api/videos');
+
+                return res.json({
+                    success: true,
+                    deletedCount,
+                    warnings
+                });
             }
 
             case 'changeRank': {

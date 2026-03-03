@@ -3,18 +3,35 @@ const router = express.Router();
 const videoController = require('../controllers/videoController');
 const { protect, checkRank } = require('../middleware/auth');
 const Video = require('../models/Video');
+const VideoView = require('../models/VideoView');
 const mongoose = require('mongoose');
 const { cacheMiddleware } = require('../middleware/cacheService');
 const asyncHandler = require('../utils/asyncHandler');
 
-// ── Infinite scroll / cursor pagination ─────────────────────────────
+const attachCombinedViews = async (videos) => {
+    if (!videos.length) return [];
+
+    const videoIds = videos.map(video => video._id);
+    const viewCounts = await VideoView.aggregate([
+        { $match: { videoId: { $in: videoIds } } },
+        { $group: { _id: '$videoId', count: { $sum: 1 } } }
+    ]);
+
+    const viewCountMap = new Map(viewCounts.map(item => [String(item._id), item.count]));
+
+    return videos.map(video => {
+        const videoObject = video.toObject();
+        videoObject.views = (videoObject.views || 0) + (viewCountMap.get(String(video._id)) || 0);
+        return videoObject;
+    });
+};
+
 // GET /api/videos?cursor=<lastId>&limit=20&category=&search=
 router.get('/', protect, cacheMiddleware, asyncHandler(async (req, res) => {
     try {
         const { cursor, limit = 20, category, search } = req.query;
-        const pageSize = Math.min(parseInt(limit) || 20, 50); // cap at 50
+        const pageSize = Math.min(parseInt(limit) || 20, 50);
 
-        // Include published videos AND legacy videos that have no status field yet
         const query = {
             $or: [
                 { status: 'published' },
@@ -23,7 +40,6 @@ router.get('/', protect, cacheMiddleware, asyncHandler(async (req, res) => {
             ]
         };
 
-        // Cursor-based: fetch videos with _id < cursor (newer → older)
         if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
             query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
         }
@@ -40,14 +56,15 @@ router.get('/', protect, cacheMiddleware, asyncHandler(async (req, res) => {
         const videos = await Video
             .find(query)
             .sort({ _id: -1 })
-            .limit(pageSize + 1)  // fetch one extra to know if there's a next page
+            .limit(pageSize + 1)
             .select('-likes -dislikes');
 
         const hasMore = videos.length > pageSize;
         const results = hasMore ? videos.slice(0, pageSize) : videos;
         const nextCursor = hasMore ? results[results.length - 1]._id : null;
+        const videosWithCombinedViews = await attachCombinedViews(results);
 
-        res.json({ videos: results, nextCursor, hasMore });
+        res.json({ videos: videosWithCombinedViews, nextCursor, hasMore });
     } catch (err) {
         console.error('getVideos error:', err);
         res.status(500).json({ message: 'Failed to fetch videos.' });
